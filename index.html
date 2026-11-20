@@ -60,7 +60,7 @@
   "use strict";
 
   // ===== Personalização =====
-  const CENTER_TEXT = "Amo-te, Lola";
+  const CENTER_TEXT = "";   // ex.: "Amo-te, Lola" para mostrar uma frase ao centro
 
   const PHRASES = [
     "I love you", "Seni seviyorum", "Te amo", "Je t'aime",
@@ -141,15 +141,18 @@
     const placed = [];
     const outline = [], fill = [];
 
-    // 0) Frase central: reserva o espaço antes de tudo
-    let cfs = base * 3;
-    const maxW = heartW * 0.6;
-    let cw = measure(CENTER_TEXT, cfs);
-    if (cw > maxW) { cfs *= maxW / cw; cw = maxW; }
-    const ccy = cy + 1 * scale;                 // zona mais larga do coração
-    const cbox = { x: cx - cw / 2, y: ccy - cfs * 0.6, w: cw, h: cfs * 1.2 };
-    placed.push({ x: cbox.x - base, y: cbox.y - base * 0.6, w: cbox.w + base * 2, h: cbox.h + base * 1.2 });
-    center = { text: CENTER_TEXT, fs: cfs, x: cx, y: ccy };
+    // 0) Frase central (opcional): reserva o espaço antes de tudo
+    center = null;
+    if (CENTER_TEXT) {
+      let cfs = base * 3;
+      const maxW = heartW * 0.6;
+      let cw = measure(CENTER_TEXT, cfs);
+      if (cw > maxW) { cfs *= maxW / cw; cw = maxW; }
+      const ccy = cy + 1 * scale;               // zona mais larga do coração
+      const cbox = { x: cx - cw / 2, y: ccy - cfs * 0.6, w: cw, h: cfs * 1.2 };
+      placed.push({ x: cbox.x - base, y: cbox.y - base * 0.6, w: cbox.w + base * 2, h: cbox.h + base * 1.2 });
+      center = { text: CENTER_TEXT, fs: cfs, x: cx, y: ccy };
+    }
 
     // 1) Contorno: frases ao longo da curva, centradas no ponto
     const steps = 900;
@@ -201,7 +204,7 @@
     fill.forEach((it, i) => it.at = OUTLINE_MS + (i / fill.length) * FILL_MS);
 
     items = outline.concat(fill);
-    center.at = OUTLINE_MS + FILL_MS + 300;
+    if (center) center.at = OUTLINE_MS + FILL_MS + 300;
   }
 
   function draw(now) {
@@ -225,7 +228,9 @@
     }
 
     // Frase central: aparece no fim, a brilhar
-    if (el >= center.at) {
+    if (!center) {
+      // sem frase central
+    } else if (el >= center.at) {
       const k = Math.min(1, (el - center.at) / CENTER_FADE_MS);
       if (k < 1) done = false;
       const e = 1 - (1 - k) ** 3;
