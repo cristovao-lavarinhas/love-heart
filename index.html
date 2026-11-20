@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Para a Lola</title>
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Amo-te, em muitas línguas.">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; cursor: pointer; touch-action: manipulation; }
+
+  #intro {
+    position: fixed; inset: 0; display: grid; place-items: center; background: #000;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #ff3024;
+    cursor: pointer; transition: opacity .8s; -webkit-tap-highlight-color: transparent;
+  }
+  #intro.hide { opacity: 0; pointer-events: none; }
+  #intro .box { text-align: center; padding: 24px; }
+  #intro svg { width: 64px; height: 64px; animation: beat 1.2s ease-in-out infinite;
+               filter: drop-shadow(0 0 14px #ff302499); }
+  #intro p { margin: 18px 0 0; font-size: 15px; letter-spacing: .02em; color: #ffffff80; }
+
+  @keyframes beat { 0%,100% { transform: scale(1); } 15% { transform: scale(1.15); } 30% { transform: scale(1); } 45% { transform: scale(1.1); } }
+  @media (prefers-reduced-motion: reduce) { #intro svg { animation: none; } }
+
+  .ui {
+    position: fixed; font: 13px system-ui, sans-serif; color: #ffffff59;
+    opacity: 0; transition: opacity 1.5s; pointer-events: none;
+  }
+  .ui.show { opacity: 1; }
+  #hint { bottom: max(16px, env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center; }
+  #mute {
+    top: max(12px, env(safe-area-inset-top)); right: max(12px, env(safe-area-inset-right));
+    background: none; border: 0; padding: 12px; min-width: 44px; min-height: 44px; cursor: pointer;
+  }
+  #mute.show { pointer-events: auto; }
+  #mute svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="intro" role="button" aria-label="Abrir">
+  <div class="box">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="#ff3024" d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.6 4.5c2.1 0 3.6 1.2 4.4 2.6.8-1.4 2.3-2.6 4.4-2.6 3.6 0 5.7 3.9 4.2 7.3C19.5 16.4 12 21 12 21z"/></svg>
+    <p>toca para abrir</p>
+  </div>
+</div>
+
+<button id="mute" class="ui" aria-label="Desligar som">
+  <svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path id="waves" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>
+</button>
+<div id="hint" class="ui">toca para repetir</div>
+
+<audio id="music" src="music.mp3" preload="auto" playsinline></audio>
+
+<script>
+(() => {
+  "use strict";
+
+  // ===== Personalização =====
+  const CENTER_TEXT = "Amo-te, Lola";
+
+  const PHRASES = [
+    "I love you", "Seni seviyorum", "Te amo", "Je t'aime",
+    "Ich liebe dich", "Ti amo", "Eu te amo", "Я тебя люблю",
+    "사랑해", "愛してる", "我爱你", "मैं तुमसे प्यार करता हूँ",
+    "Σ' αγαπώ", "Ik hou van jou", "Jag älskar dig", "Kocham cię",
+    "ฉันรักเธอ", "Anh yêu em", "Aku cinta kamu", "Я тебе кохаю",
+    "Amo-te",
+  ];
+  // ==========================
+
+  const RED = [255, 48, 36];
+  const FONT = '"Segoe UI", "Helvetica Neue", Arial, "Noto Sans", "Noto Sans CJK KR", "Noto Sans Devanagari", "Noto Sans Thai", sans-serif';
+  const OUTLINE_MS = 2600;   // contorno
+  const FILL_MS = 11000;     // preenchimento
+  const FLASH_MS = 450;      // brilho branco -> vermelho
+  const CENTER_FADE_MS = 1600;
+
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const hint = document.getElementById("hint");
+  const intro = document.getElementById("intro");
+  const music = document.getElementById("music");
+  const muteBtn = document.getElementById("mute");
+  const waves = document.getElementById("waves");
+
+  let W = 0, H = 0, dpr = 1, items = [], center = null, start = 0, raf = 0, seed = 11, started = false;
+
+  // RNG determinístico (como o r.Random(11) do original)
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  const pick = arr => arr[Math.floor(rand() * arr.length)];
+
+  // Curva clássica do coração: t=0 é a "covinha" do topo, t=π a ponta de baixo
+  const heartPoint = t => ({
+    x: 16 * Math.sin(t) ** 3,
+    y: -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)),
+  });
+
+  let poly = [];
+  const inside = (x, y) => {
+    let c = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) c = !c;
+    }
+    return c;
+  };
+
+  const overlaps = (box, list, pad) =>
+    list.some(o => box.x < o.x + o.w + pad && box.x + box.w + pad > o.x &&
+                   box.y < o.y + o.h + pad && box.y + box.h + pad > o.y);
+
+  const setFont = fs => { ctx.font = `700 ${fs}px ${FONT}`; };
+  const measure = (text, fs) => { setFont(fs); return ctx.measureText(text).width; };
+
+  function layout() {
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * dpr; canvas.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    seed = 11;
+    // A curva tem ~32 unidades de largura e ~29 de altura (y de -12 a 17).
+    const heartW = Math.min(W * 0.80, (H * 0.82) * 32 / 29);
+    const scale = heartW / 32;
+    const cx = W / 2, cy = H / 2 - 2.5 * scale;
+    const base = Math.max(7, heartW / 52);
+
+    poly = [];
+    for (let i = 0; i < 360; i++) {
+      const p = heartPoint((i / 360) * Math.PI * 2);
+      poly.push({ x: cx + p.x * scale, y: cy + p.y * scale });
+    }
+
+    const placed = [];
+    const outline = [], fill = [];
+
+    // 0) Frase central: reserva o espaço antes de tudo
+    let cfs = base * 3;
+    const maxW = heartW * 0.6;
+    let cw = measure(CENTER_TEXT, cfs);
+    if (cw > maxW) { cfs *= maxW / cw; cw = maxW; }
+    const ccy = cy + 1 * scale;                 // zona mais larga do coração
+    const cbox = { x: cx - cw / 2, y: ccy - cfs * 0.6, w: cw, h: cfs * 1.2 };
+    placed.push({ x: cbox.x - base, y: cbox.y - base * 0.6, w: cbox.w + base * 2, h: cbox.h + base * 1.2 });
+    center = { text: CENTER_TEXT, fs: cfs, x: cx, y: ccy };
+
+    // 1) Contorno: frases ao longo da curva, centradas no ponto
+    const steps = 900;
+    for (let i = 0; i < steps; i++) {
+      const t = (i / steps) * Math.PI * 2;
+      const p = heartPoint(t);
+      const x = cx + p.x * scale, y = cy + p.y * scale;
+      const text = pick(PHRASES);
+      const fs = base * (0.8 + rand() * 0.45);
+      const w = measure(text, fs);
+      const box = { x: x - w / 2, y: y - fs / 2, w, h: fs };
+      if (!overlaps(box, placed, fs * 0.2)) {
+        placed.push(box);
+        outline.push({ text, fs, x: box.x, y: box.y + fs * 0.8, t });
+      }
+    }
+
+    // 2) Interior: varrer linhas de cima para baixo
+    const ys = poly.map(p => p.y), xs = poly.map(p => p.x);
+    const top = Math.min(...ys), bottom = Math.max(...ys);
+    const left = Math.min(...xs), right = Math.max(...xs);
+    let y = top;
+    while (y < bottom) {
+      const rowFs = base * (0.8 + rand() * 0.5);
+      let x = left + rand() * base;
+      while (x < right) {
+        const text = pick(PHRASES);
+        const fs = rowFs * (0.85 + rand() * 0.35);
+        const w = measure(text, fs);
+        const box = { x, y, w, h: fs };
+        const ok = inside(x, y) && inside(x + w, y) && inside(x, y + fs) && inside(x + w, y + fs)
+                   && inside(x + w / 2, y + fs / 2);
+        if (ok && !overlaps(box, placed, fs * 0.18)) {
+          placed.push(box);
+          fill.push({ text, fs, x, y: y + fs * 0.8 });
+          x += w + fs * (0.35 + rand() * 0.45);
+        } else {
+          x += fs * 0.4;
+        }
+      }
+      y += rowFs * (1.0 + rand() * 0.15);
+    }
+
+    outline.sort((a, b) => a.t - b.t);
+    outline.forEach((it, i) => it.at = (i / outline.length) * OUTLINE_MS);
+
+    fill.forEach(it => it.k = it.y + (rand() - 0.5) * (bottom - top) * 0.25);
+    fill.sort((a, b) => a.k - b.k);
+    fill.forEach((it, i) => it.at = OUTLINE_MS + (i / fill.length) * FILL_MS);
+
+    items = outline.concat(fill);
+    center.at = OUTLINE_MS + FILL_MS + 300;
+  }
+
+  function draw(now) {
+    const el = now - start;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+
+    let done = true;
+    for (const it of items) {
+      if (el < it.at) { done = false; continue; }
+      const k = Math.min(1, (el - it.at) / FLASH_MS);   // 0 = branco, 1 = vermelho
+      if (k < 1) done = false;
+      const mix = c => Math.round(255 + (c - 255) * k);
+      setFont(it.fs);
+      ctx.textAlign = "left";
+      ctx.shadowColor = `rgba(255,${60 + 140 * (1 - k)},${50 + 140 * (1 - k)},${0.9 - 0.45 * k})`;
+      ctx.shadowBlur = it.fs * (0.9 - 0.4 * k);
+      ctx.fillStyle = `rgb(${mix(RED[0])},${mix(RED[1])},${mix(RED[2])})`;
+      ctx.globalAlpha = Math.min(1, 0.35 + k * 1.3);
+      ctx.fillText(it.text, it.x, it.y);
+    }
+
+    // Frase central: aparece no fim, a brilhar
+    if (el >= center.at) {
+      const k = Math.min(1, (el - center.at) / CENTER_FADE_MS);
+      if (k < 1) done = false;
+      const e = 1 - (1 - k) ** 3;
+      setFont(center.fs);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.globalAlpha = e;
+      ctx.shadowColor = "rgba(255,70,55,0.95)";
+      ctx.shadowBlur = center.fs * 0.9;
+      ctx.fillStyle = "#fff4f2";
+      ctx.fillText(center.text, center.x, center.y);
+      ctx.shadowBlur = center.fs * 0.35;
+      ctx.fillText(center.text, center.x, center.y);
+      ctx.textBaseline = "alphabetic";
+    } else {
+      done = false;
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+
+    if (done) { hint.classList.add("show"); return; }
+    raf = requestAnimationFrame(draw);
+  }
+
+  function playMusic() {
+    try {
+      music.currentTime = 0;
+      const p = music.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (_) { /* sem som não estraga a animação */ }
+  }
+
+  function play(withMusic) {
+    cancelAnimationFrame(raf);
+    hint.classList.remove("show");
+    layout();
+    start = performance.now() + 500;
+    if (withMusic) setTimeout(playMusic, 0);
+    raf = requestAnimationFrame(draw);
+  }
+
+  intro.addEventListener("click", () => {
+    if (started) return;
+    started = true;
+    intro.classList.add("hide");
+    muteBtn.classList.add("show");
+    play(true);
+  });
+
+  canvas.addEventListener("click", () => { if (started) play(true); });
+
+  muteBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    music.muted = !music.muted;
+    waves.style.display = music.muted ? "none" : "";
+    muteBtn.setAttribute("aria-label", music.muted ? "Ligar som" : "Desligar som");
+  });
+
+  // Só refaz o desenho se a largura mudar (a barra do browser no telemóvel muda só a altura)
+  let lastW = window.innerWidth, resizeTimer;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (!started || window.innerWidth === lastW) return;
+      lastW = window.innerWidth;
+      play(false);
+    }, 250);
+  });
+
+  // Prepara o canvas atrás do ecrã de abertura
+  (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => {
+    layout();
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+  });
+})();
+</script>
+</body>
+</html>
