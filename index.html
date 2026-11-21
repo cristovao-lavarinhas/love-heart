@@ -3,9 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Para a Lola</title>
+<title>Abre-me</title>
 <meta name="theme-color" content="#000000">
-<meta name="description" content="Amo-te, em muitas línguas.">
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   canvas { display: block; width: 100vw; height: 100vh; height: 100dvh; cursor: pointer; touch-action: manipulation; }
@@ -275,6 +274,7 @@
   intro.addEventListener("click", () => {
     if (started) return;
     started = true;
+    document.title = "Para a Lola";
     intro.classList.add("hide");
     muteBtn.classList.add("show");
     play(true);
